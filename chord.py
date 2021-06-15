@@ -1,10 +1,10 @@
-from typing import Any, List, Set
+from typing import Any, Iterable, List, Set
 
+import time
+import random
 import Pyro5
 import Pyro5.api
 import dataclasses
-
-from Pyro5.nameserver import NameServer
 
 
 @dataclasses.dataclass
@@ -17,9 +17,14 @@ class FingerTable:
     def __init__(self, node_id: int, size: int) -> None:
         self.node_id: int = node_id
         self.size: int = size
-        
+
         # FingerTable[0].node is the predecessor node in the chord cycle
-        self.ft: List[FingerData] = [FingerData(node_id - 1, node_id)] + [FingerData(self.map(i), node_id) for i in range(1, size + 1)] 
+        self.ft: List[FingerData] = [FingerData(node_id - 1, node_id)] + [
+            FingerData(self.start_index(i), node_id) for i in range(1, size + 1)
+        ]
+
+    def start_index(self, i: int) -> int:
+        return (self.node_id + 2 ** (i - 1)) % 2 ** self.size
 
     def __getitem__(self, item: int) -> FingerData:
         return self.ft[item]
@@ -27,8 +32,11 @@ class FingerTable:
     def __setitem__(self, key: int, node: int) -> None:
         self.ft[key].node = node
 
-    def map(self, i: int) -> int:
-        return (self.node_id + 2 ** (i - 1)) % 2 ** self.size
+    def __iter__(self) -> Iterable[FingerData]:
+        return iter(self.ft)
+
+    def __str__(self) -> str:
+        return f"Finger Table of {self.node_id}\n" + "\n".join(self.ft)
 
 
 class NodePool:
@@ -54,14 +62,14 @@ class NodePool:
 
     def get_aviable_identifier(self) -> int:
         alive_nodes = self.get_nodes()
-        aviables_nodes = self.total_nodes - alive_nodes
-        return aviables_nodes.pop()
+        aviables_nodes = list(self.total_nodes - alive_nodes)
+        return random.choice(aviables_nodes)
 
     def get_random_node(self) -> Any:
         nodes = self.get_nodes()
         if not nodes:
             return None
-        return self.get_node(nodes.pop())
+        return self.get_node(random.choice(list(nodes)))
 
     def start_loop(self):
         self.deamon.requestLoop()
@@ -76,6 +84,7 @@ class Node:
     def __init__(self, id: int, pool: NodePool) -> None:
         self._id = id
         self.pool = pool
+        self.MAX = pool.MAX
         self.ft = FingerTable(id, pool.BITS_COUNT)
 
     @property
@@ -105,20 +114,45 @@ class Node:
     def set_predecessor(self, value: int):
         self.ft[0].node = value
 
-    def find_succesor(self, k: int):
+    def between(self, k, a, b):
+        a %= self.MAX
+        b %= self.MAX
+
+        if a <= b:
+            return a <= k < b
+        return a <= k < b + self.MAX or (a <= k + self.MAX and k < b)
+
+    def find_successor(self, k: int):
+        print(f"Node: {self.id}\nMethod: find_successor\nParams: {k}")
+        print()
+        
         node = self.find_predecessor(k)
         return node.successor
 
     def find_predecessor(self, k: int):
+        print(f"Node: {self.id}\nMethod: find_predecessor\nParams: {k}")
+        
         node = self
-        while not (node._id < k <= node.successor_id):
+
+        while not self.between(k, node.id - 1, node.successor_id + 1):
+            print(f"{k} in ({node.id}, {self.successor_id})")
+            print()
+            time.sleep(1)
             node = node.closest_preceding_finger(k)
+           
         return node
 
     def closest_preceding_finger(self, k: int):
+        print(f"Node: {self.id}\nMethod: closest_preceding_finger\nParams: {k}")
+        
+        ft = self.ft
+
         for i in range(self.pool.BITS_COUNT, 0, -1):
-            if self._id < self.ft[i].node < k:
-                node = self.pool.get_node(i)
+            if self.between(ft[i].node, self.id - 1, k):
+                print(f"\t{ft[i].node} in ({self.id}, {k})")
+                print()
+                node = self.pool.get_node(self.ft[i].node)
+                time.sleep(1)
                 return node
         return self
 
@@ -130,18 +164,20 @@ class Node:
     def init_finger_table(self, other_node):
         ft = self.ft  # I do this so as not to write a lot
 
-        successor = self.successor
+        ft[1].node = other_node.find_successor(ft[1].start).id
+        print(ft[1])
+        ft[0].node = self.successor.predecessor_id
+        print(ft[0])
+        self.successor.set_predecessor(self.id)
 
-        self.set_successor(other_node.find_succesor(ft[1].start).id)
-
-        self.set_predecessor(self.successor_id - 1)
-        successor.set_predecessor(self._id)
-
+        print()
         for i in range(1, self.pool.BITS_COUNT):
-            if self._id <= ft[i + 1].start <= ft[i].node:
+            if self.between(
+                ft[i + 1].start, self.id, ft[i].node
+            ):  # self.id <= ft[i + 1].start < ft[i].node:
                 ft[i + 1].node = ft[i].node
             else:
-                ft[i + 1].node = other_node.find_succesor(ft[1].start).id
+                ft[i + 1].node = other_node.find_successor(ft[i + 1].start).id
 
     def update_others(self):
         for i in range(1, self.pool.BITS_COUNT + 1):

@@ -1,6 +1,5 @@
 from Pyro5.nameserver import start_ns
 import typer
-import Pyro5.api
 from chord import NodePool, Node
 
 
@@ -43,4 +42,4 @@ def create_node(id: int = -1):
 
 
 if __name__ == "__main__":
-    app()
+    create_node(6)
