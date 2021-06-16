@@ -172,6 +172,7 @@ class Node:
         ft[1].node = other_node.find_successor(ft[1].start).id
         ft[0].node = self.successor.predecessor_id
         self.successor.set_predecessor(self.id)
+        self.predecessor.set_successor(self.id)
 
         self.print_finger_table()
 
@@ -183,6 +184,8 @@ class Node:
                 ft[i + 1].node = ft[i].node
             else:
                 ft[i + 1].node = other_node.find_successor(ft[i + 1].start).id
+            self.print_finger_table()
+            print()
 
     def update_others(self):
         for i in range(1, self.pool.BITS_COUNT + 1):
@@ -200,5 +203,6 @@ class Node:
 
     def print_finger_table(self, tab_depth: int = 0, print_predecessor: bool = True):
         ft = self.ft if print_predecessor else self.ft[1:]
+        print('\t' * tab_depth + 'Finger Table:' )
         for x in ft:
-            print(('\t' * tab_depth) +  f"{x}")
+            print(('\t' * (tab_depth + 1)) +  f"{x}")
