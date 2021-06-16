@@ -1,6 +1,5 @@
 from Pyro5.nameserver import start_ns
 import typer
-import Pyro5.api
 from chord import NodePool, Node
 
 

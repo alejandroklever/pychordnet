@@ -19,7 +19,7 @@ class FingerTable:
         self.size: int = size
 
         # FingerTable[0].node is the predecessor node in the chord cycle
-        self.ft: List[FingerData] = [FingerData(node_id - 1, node_id)] + [
+        self.ft: List[FingerData] = [FingerData(node_id, node_id)] + [
             FingerData(self.start_index(i), node_id) for i in range(1, size + 1)
         ]
 
@@ -123,34 +123,39 @@ class Node:
         return a <= k < b + self.MAX or (a <= k + self.MAX and k < b)
 
     def find_successor(self, k: int):
+        print()
         print(f"Node: {self.id}\nMethod: find_successor\nParams: {k}")
         print()
-        
+
         node = self.find_predecessor(k)
         return node.successor
 
     def find_predecessor(self, k: int):
+        print()
         print(f"Node: {self.id}\nMethod: find_predecessor\nParams: {k}")
-        
+        print()
+
         node = self
 
         while not self.between(k, node.id - 1, node.successor_id + 1):
-            print(f"{k} in ({node.id}, {self.successor_id})")
-            print()
+            print(f"\t{k} not in ({node.id}, {self.successor_id})")
             time.sleep(1)
             node = node.closest_preceding_finger(k)
-           
+
         return node
 
     def closest_preceding_finger(self, k: int):
+        print()
         print(f"Node: {self.id}\nMethod: closest_preceding_finger\nParams: {k}")
-        
+        print()
+
         ft = self.ft
+
+        self.print_finger_table(tab_depth=1)
 
         for i in range(self.pool.BITS_COUNT, 0, -1):
             if self.between(ft[i].node, self.id - 1, k):
                 print(f"\t{ft[i].node} in ({self.id}, {k})")
-                print()
                 node = self.pool.get_node(self.ft[i].node)
                 time.sleep(1)
                 return node
@@ -165,10 +170,10 @@ class Node:
         ft = self.ft  # I do this so as not to write a lot
 
         ft[1].node = other_node.find_successor(ft[1].start).id
-        print(ft[1])
         ft[0].node = self.successor.predecessor_id
-        print(ft[0])
         self.successor.set_predecessor(self.id)
+
+        self.print_finger_table()
 
         print()
         for i in range(1, self.pool.BITS_COUNT):
@@ -192,3 +197,8 @@ class Node:
 
     def start_loop(self):
         self.pool.start_loop()
+
+    def print_finger_table(self, tab_depth: int = 0, print_predecessor: bool = True):
+        ft = self.ft if print_predecessor else self.ft[1:]
+        for x in ft:
+            print(('\t' * tab_depth) +  f"{x}")

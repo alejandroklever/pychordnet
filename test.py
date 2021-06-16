@@ -42,4 +42,5 @@ def create_node(id: int = -1):
 
 
 if __name__ == "__main__":
+    # app()
     create_node(6)
