@@ -2,6 +2,12 @@
 import Pyro5.api
 import typer
 
+from Pyro5.nameserver import start_ns
+
+
+HOST = "localhost"
+PORT = 9090
+
 app = typer.Typer()
 
 
@@ -12,6 +18,14 @@ class User:
 
     def name(self):
         return self._name
+
+
+@app.command()
+def start_name_service():
+    uri, deamon, _ = start_ns(host=HOST, port=PORT)
+    print(f"NS running on {uri.location}")
+    print(f"URI = {uri.protocol}:{uri.object}@{uri.location}")
+    deamon.requestLoop()
 
 
 @app.command()
