@@ -1,0 +1,5 @@
+beautifulsoup4==4.9.3
+Pyro5==5.12
+pyzmq==22.1.0
+requests==2.25.1
+typer==0.3.2

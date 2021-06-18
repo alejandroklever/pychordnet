@@ -1,18 +1,17 @@
 import dataclasses
 import inspect
 import random
-import time
 from typing import Any, Iterable, List, Set
 
-import Pyro5
-import Pyro5.api
 import typer
+from enum import Enum, auto
+from Pyro5.api import Daemon, Proxy, expose, locate_ns
 
 USE_MONITOR = True
 
 
-def echo(message: str):
-    typer.echo(typer.style(message, fg=typer.colors.GREEN))
+def echo(message: str, bold: bool = False):
+    typer.echo(typer.style(message, fg=typer.colors.GREEN, bold=bold))
 
 
 def echo_error(message: str):
@@ -24,6 +23,10 @@ def echo_warning(message: str):
 
 
 def monitor(active: bool = True):
+    """
+    Return a decorator that print the info of the target function when is called.
+    """
+
     def decorator(func):
         def wrapper(*args):
             args_names = inspect.getfullargspec(func)[0][1:]
@@ -76,81 +79,145 @@ class FingerTable:
         return f"Finger Table of {self.node_id}\n" + "\n".join(self.ft)
 
 
-class NodePool:
+class NetworkCLIController:
+    def __init__(self, linker: "Linker") -> None:
+        self.linker = linker
+
+    def echo_finger_table(self, node_id: int):
+        node = self.linker.get_node(NodeType.chord, node_id)
+        ft = node.finger_table
+        echo(f"node.{node.node_type.name}.{node.id} finger table =>")
+        for entry in ft:
+            echo(f"\t{entry}")
+
+    def echo_finger_tables(self):
+        nodes = self.linker.get_nodes(NodeType.chord)
+        nodes = sorted(nodes)
+        for node_id in nodes:
+            self.log_finger_tables(node_id)
+
+    def cli_loop(self):
+        keywords = {"ECHO", "THEN", "ENDIF", "FOR", "NEXT", "GOSUB", "RETURN"}
+        token_specification = [
+            ("ECHO", r"\d+(\.\d*)?"),  # Integer or decimal number
+            ("ASSIGN", r":="),  # Assignment operator
+            ("END", r";"),  # Statement terminator
+            ("ID", r"[A-Za-z]+"),  # Identifiers
+            ("OP", r"[+\-*/]"),  # Arithmetic operators
+            ("NEWLINE", r"\n"),  # Line endings
+            ("SKIP", r"[ \t]+"),  # Skip over spaces and tabs
+            ("MISMATCH", r"."),  # Any other character
+        ]
+        try:
+            while True:
+                s = input()
+        except KeyboardInterrupt:
+            self.linker.deamon.close
+
+
+class Linker:
+    """
+    This class is an api to comunicate any member of the network with the resource server
+    """
+
     def __init__(self, m: int) -> None:
         self.BITS_COUNT = m
         self.MAX = 2 ** m
-        self.name_server = Pyro5.api.locate_ns()
-        self.deamon = Pyro5.api.Daemon()
+        self.name_server = locate_ns()
+        self.deamon = Daemon()
         self.total_nodes = set(range(self.MAX))
 
-    def register_node(self, node):
-        object_id = f"node.{node.id}"
+    def register_node(self, node: "Node"):
+        object_id = f"node.{node._node_type.name}.{node._id}"
         uri = self.deamon.register(node, object_id)
-        self.name_server.register(object_id, uri, metadata=["node"])
+        self.name_server.register(
+            object_id, uri, metadata=[f"node.{node._node_type.name}"]
+        )
         return uri
 
-    def get_node(self, i: int) -> Any:
-        return Pyro5.api.Proxy(self.node_uri(i))
+    def get_node(self, node_type: "NodeType", i: int) -> Any:
+        return Proxy(self.node_uri(node_type, i))
 
-    def get_nodes(self) -> Set[int]:
-        nodes = self.name_server.yplookup(meta_all=["node"])
-        return set(int(node_name.replace("node.", "")) for node_name in nodes)
+    def get_nodes(self, node_type: "NodeType") -> Set[int]:
+        nodes = self.name_server.yplookup(meta_all=[f"node.{node_type.name}"])
+        return set(
+            int(node_name.replace(f"node.{node_type.name}.", "")) for node_name in nodes
+        )
 
-    def get_aviable_identifier(self) -> int:
-        alive_nodes = self.get_nodes()
+    def get_aviable_chord_identifier(self) -> int:
+        alive_nodes = self.get_nodes(NodeType.chord)
         aviables_nodes = list(self.total_nodes - alive_nodes)
         return random.choice(aviables_nodes)
 
-    def get_random_node(self) -> Any:
-        nodes = self.get_nodes()
+    def get_random_node(self, node_type: "NodeType") -> Any:
+        nodes = self.get_nodes(node_type)
         if not nodes:
             return None
-        return self.get_node(random.choice(list(nodes)))
+        return self.get_node(node_type, random.choice(list(nodes)))
 
     def start_loop(self):
         self.deamon.requestLoop()
 
     @staticmethod
-    def node_uri(i: int) -> str:
-        return f"PYRONAME:node.{i}"
+    def node_uri(node_type: "NodeType", i: int) -> str:
+        return f"PYRONAME:node.{node_type.name}.{i}"
 
 
-@Pyro5.api.expose
+class NodeType(Enum):
+    none = auto()
+    chord = auto()
+
+
 class Node:
-    def __init__(self, id: int, pool: NodePool) -> None:
+    _id: int
+    _node_type: NodeType
+
+
+@expose
+class ChordNode(Node):
+
+    _node_type = NodeType.chord
+
+    def __init__(self, id: int, linker: Linker) -> None:
         self._id = id
-        self.pool = pool
-        self.MAX = pool.MAX
-        self.BIT_COUNT = pool.BITS_COUNT
-        self.ft = FingerTable(id, pool.BITS_COUNT)
+        self.linker = linker
+        self._ft = FingerTable(id, linker.BITS_COUNT)
+        self.MAX = linker.MAX
+        self.BIT_COUNT = linker.BITS_COUNT
 
     @property
     def id(self):
         return self._id
 
     @property
-    def successor(self):
-        successor = self.pool.get_node(self.ft[1].node)
-        return successor
+    def finger_table(self):
+        return self._ft
 
     @property
-    def successor_id(self) -> int:
-        return self.ft[1].node
+    def node_type(self):
+        return self._node_type
 
-    def set_successor(self, value):
-        self.ft[1].node = value
+    @property
+    def successor(self):
+        return self.linker.get_node(self.node_type, self._ft[1].node)
 
     @property
     def predecessor(self):
-        return self.pool.get_node(self.ft[0].node)
+        return self.linker.get_node(self.node_type, self._ft[0].node)
+
+    @property
+    def successor_id(self) -> int:
+        return self._ft[1].node
 
     @property
     def predecessor_id(self):
-        return self.ft[0].node
+        return self._ft[0].node
+
+    def set_successor(self, value):
+        self._ft[1].node = value
 
     def set_predecessor(self, value: int):
-        self.ft[0].node = value
+        self._ft[0].node = value
 
     def in_between(self, k: int, a: int, b: int, equals: bool = True) -> bool:
         a %= self.MAX
@@ -180,14 +247,14 @@ class Node:
 
     @monitor(active=USE_MONITOR)
     def closest_preceding_finger(self, key: int):
-        ft = self.ft
+        ft = self.finger_table
 
-        self.print_finger_table(tab_depth=1)
-        for i in range(self.pool.BITS_COUNT, 0, -1):
+        # self.print_finger_table(tab_depth=1)
+        for i in range(self.linker.BITS_COUNT, 0, -1):
             if self.in_between(ft[i].node, self.id + 1, key):
                 # print(f"\t{ft[i].node} in ({self.id}, {key})")
                 # time.sleep(1)
-                node = self.pool.get_node(self.ft[i].node)
+                node = self.linker.get_node(self.node_type, self._ft[i].node)
                 return node
         return self
 
@@ -198,8 +265,8 @@ class Node:
             self.update_others()
 
     @monitor(active=USE_MONITOR)
-    def init_finger_table(self, anchor_node: "Node"):
-        ft = self.ft  # I do this so as not to write a lot
+    def init_finger_table(self, anchor_node: "ChordNode"):
+        ft = self.finger_table  # I do this so as not to write a lot
 
         ft[1].node = anchor_node.find_successor(ft[1].start).id
         ft[0].node = self.successor.predecessor_id
@@ -207,7 +274,7 @@ class Node:
 
         # self.print_finger_table()
         # print()
-        for i in range(1, self.pool.BITS_COUNT):
+        for i in range(1, self.linker.BITS_COUNT):
             if self.in_between(ft[i + 1].start, self.id, ft[i].node):
                 ft[i + 1].node = ft[i].node
             else:
@@ -222,17 +289,17 @@ class Node:
 
     @monitor(active=USE_MONITOR)
     def update_others(self):
-        for i in range(1, self.pool.BITS_COUNT + 1):
+        for i in range(1, self.linker.BITS_COUNT + 1):
             # print(f"for i = {i}")
             node = self.find_predecessor((self.id - 2 ** (i - 1)) % self.MAX)
             node.update_finger_table(self.id, i)
 
     @monitor(active=USE_MONITOR)
     def update_finger_table(self, new_id: int, index: int):
-        ft = self.ft
+        ft = self.finger_table
 
         if self.in_between(new_id, self.id, ft[index].node):
-            print(f"\t{new_id} in ({self.id}, {ft[index].node})")
+            # print(f"\t{new_id} in ({self.id}, {ft[index].node})")
             ft[index].node = new_id
 
             # self.print_finger_table()
@@ -245,13 +312,16 @@ class Node:
             predecessor.update_finger_table(new_id, index)
 
     def start_loop(self):
-        self.pool.start_loop()
+        self.linker.start_loop()
 
     def print_finger_table(self, tab_depth: int = 0, print_predecessor: bool = True):
-        ft = self.ft if print_predecessor else self.ft[1:]
-        print("\t" * tab_depth + "Finger Table:")
+        ft = self._ft if print_predecessor else self._ft[1:]
+        echo("\t" * tab_depth + f"node.{self.node_type.name}.{self.id} finger table =>")
         for x in ft:
-            print(("\t" * (tab_depth + 1)) + f"{x}")
+            echo(("\t" * (tab_depth + 1)) + f"{x}")
+
+    def serialized_finger_table(self) -> str:
+        return [str(x) for x in self.finger_table]
 
     def __str__(self) -> str:
         return f"Node.{self.id}"

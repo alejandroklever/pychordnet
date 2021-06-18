@@ -1,6 +1,6 @@
 from Pyro5.nameserver import start_ns
 import typer
-from chord import NodePool, Node
+from chord import Linker, ChordNode
 
 
 app = typer.Typer()
@@ -20,15 +20,15 @@ def start_name_service():
 
 @app.command()
 def create_node(id: int = -1):
-    pool = NodePool(M)
+    pool = Linker(M)
 
-    node_id = pool.get_aviable_identifier() if id == -1 else id % 2 ** M
+    node_id = pool.get_aviable_chord_identifier() if id == -1 else id % 2 ** M
     print(f"Node id => {node_id}")
     other_node = pool.get_random_node()
     if other_node is not None:
         print(f"Join node => {other_node.id}")
 
-    node = Node(node_id, pool)
+    node = ChordNode(node_id, pool)
     uri = pool.register_node(node)
 
     print(f"Uri => {uri}")

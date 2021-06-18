@@ -1,6 +1,5 @@
 import os
 import time
-import multiprocessing
 
 
 def method1():
@@ -8,7 +7,7 @@ def method1():
 
 
 def method2():
-    os.system("python main.py create-node --id 0")
+    os.system("python main.py create-chord-node 0")
 
 
 if __name__ == "__main__":
