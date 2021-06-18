@@ -1,10 +1,47 @@
+import dataclasses
+import inspect
+import random
+import time
 from typing import Any, Iterable, List, Set
 
-import time
-import random
 import Pyro5
 import Pyro5.api
-import dataclasses
+import typer
+
+USE_MONITOR = True
+
+
+def echo(message: str):
+    typer.echo(typer.style(message, fg=typer.colors.GREEN))
+
+
+def echo_error(message: str):
+    typer.echo(typer.style(message, fg=typer.colors.RED, bold=True))
+
+
+def echo_warning(message: str):
+    typer.echo(typer.style(message, fg=typer.colors.YELLOW, bold=True))
+
+
+def monitor(active: bool = True):
+    def decorator(func):
+        def wrapper(*args):
+            args_names = inspect.getfullargspec(func)[0][1:]
+            args_values = args[1:]
+            args_str = ", ".join(
+                f"{name}={value}" for name, value in zip(args_names, args_values)
+            )
+            s = f"{args[0]} call => {func.__name__} ({args_str})"
+            echo(s)
+            try:
+                result = func(*args)
+            except Exception as e:
+                raise e
+            return result
+
+        return wrapper if active else func
+
+    return decorator
 
 
 @dataclasses.dataclass
@@ -85,6 +122,7 @@ class Node:
         self._id = id
         self.pool = pool
         self.MAX = pool.MAX
+        self.BIT_COUNT = pool.BITS_COUNT
         self.ft = FingerTable(id, pool.BITS_COUNT)
 
     @property
@@ -96,12 +134,12 @@ class Node:
         successor = self.pool.get_node(self.ft[1].node)
         return successor
 
+    @property
+    def successor_id(self) -> int:
+        return self.ft[1].node
+
     def set_successor(self, value):
         self.ft[1].node = value
-
-    @property
-    def successor_id(self):
-        return self.ft[1].node
 
     @property
     def predecessor(self):
@@ -114,95 +152,109 @@ class Node:
     def set_predecessor(self, value: int):
         self.ft[0].node = value
 
-    def between(self, k, a, b):
+    def in_between(self, k: int, a: int, b: int, equals: bool = True) -> bool:
         a %= self.MAX
         b %= self.MAX
 
-        if a <= b:
+        if a == b:
+            return equals
+        if a < b:
             return a <= k < b
         return a <= k < b + self.MAX or (a <= k + self.MAX and k < b)
 
+    @monitor(active=USE_MONITOR)
     def find_successor(self, k: int):
-        print()
-        print(f"Node: {self.id}\nMethod: find_successor\nParams: {k}")
-        print()
-
         node = self.find_predecessor(k)
         return node.successor
 
-    def find_predecessor(self, k: int):
-        print()
-        print(f"Node: {self.id}\nMethod: find_predecessor\nParams: {k}")
-        print()
-
+    @monitor(active=USE_MONITOR)
+    def find_predecessor(self, key: int):
         node = self
 
-        while not self.between(k, node.id - 1, node.successor_id + 1):
-            print(f"\t{k} not in ({node.id}, {self.successor_id})")
-            time.sleep(1)
-            node = node.closest_preceding_finger(k)
+        while not self.in_between(key, node.id + 1, node.successor_id + 1):
+            # print(f"\t{key} not in ({node.id}, {self.successor_id}]")
+            # time.sleep(1)
+            node = node.closest_preceding_finger(key)
 
         return node
 
-    def closest_preceding_finger(self, k: int):
-        print()
-        print(f"Node: {self.id}\nMethod: closest_preceding_finger\nParams: {k}")
-        print()
-
+    @monitor(active=USE_MONITOR)
+    def closest_preceding_finger(self, key: int):
         ft = self.ft
 
         self.print_finger_table(tab_depth=1)
-
         for i in range(self.pool.BITS_COUNT, 0, -1):
-            if self.between(ft[i].node, self.id - 1, k):
-                print(f"\t{ft[i].node} in ({self.id}, {k})")
+            if self.in_between(ft[i].node, self.id + 1, key):
+                # print(f"\t{ft[i].node} in ({self.id}, {key})")
+                # time.sleep(1)
                 node = self.pool.get_node(self.ft[i].node)
-                time.sleep(1)
                 return node
         return self
 
-    def join(self, other_node):
-        if other_node is not None:
-            self.init_finger_table(other_node)
+    @monitor(active=USE_MONITOR)
+    def join(self, anchor_node):
+        if anchor_node is not None:
+            self.init_finger_table(anchor_node)
             self.update_others()
 
-    def init_finger_table(self, other_node):
+    @monitor(active=USE_MONITOR)
+    def init_finger_table(self, anchor_node: "Node"):
         ft = self.ft  # I do this so as not to write a lot
 
-        ft[1].node = other_node.find_successor(ft[1].start).id
+        ft[1].node = anchor_node.find_successor(ft[1].start).id
         ft[0].node = self.successor.predecessor_id
         self.successor.set_predecessor(self.id)
-        self.predecessor.set_successor(self.id)
 
-        self.print_finger_table()
-
-        print()
+        # self.print_finger_table()
+        # print()
         for i in range(1, self.pool.BITS_COUNT):
-            if self.between(
-                ft[i + 1].start, self.id, ft[i].node
-            ):  # self.id <= ft[i + 1].start < ft[i].node:
+            if self.in_between(ft[i + 1].start, self.id, ft[i].node):
                 ft[i + 1].node = ft[i].node
             else:
-                ft[i + 1].node = other_node.find_successor(ft[i + 1].start).id
-            self.print_finger_table()
-            print()
+                succ = anchor_node.find_successor(ft[i + 1].start).id
+                if self.in_between(self.id, ft[i + 1].start, succ, False):
+                    ft[i + 1] = self.id
+                else:
+                    ft[i + 1] = succ
 
+            # self.print_finger_table()
+            # print()
+
+    @monitor(active=USE_MONITOR)
     def update_others(self):
         for i in range(1, self.pool.BITS_COUNT + 1):
-            node = self.find_predecessor(self._id - 2 ** (i - 1))
-            node.update_finger_table(self._id, i)
+            # print(f"for i = {i}")
+            node = self.find_predecessor((self.id - 2 ** (i - 1)) % self.MAX)
+            node.update_finger_table(self.id, i)
 
-    def update_finger_table(self, s, i):
-        if self._id <= s < self.ft[i].node:
-            self.ft[i].node = s
+    @monitor(active=USE_MONITOR)
+    def update_finger_table(self, new_id: int, index: int):
+        ft = self.ft
+
+        if self.in_between(new_id, self.id, ft[index].node):
+            print(f"\t{new_id} in ({self.id}, {ft[index].node})")
+            ft[index].node = new_id
+
+            # self.print_finger_table()
+
+            # node with the "new_id" id is calling remote this node
+            # and it finger table is computed correctly
+            if self.predecessor_id == new_id:
+                return
             predecessor = self.predecessor
-            predecessor.update_finger_table(s, i)
+            predecessor.update_finger_table(new_id, index)
 
     def start_loop(self):
         self.pool.start_loop()
 
     def print_finger_table(self, tab_depth: int = 0, print_predecessor: bool = True):
         ft = self.ft if print_predecessor else self.ft[1:]
-        print('\t' * tab_depth + 'Finger Table:' )
+        print("\t" * tab_depth + "Finger Table:")
         for x in ft:
-            print(('\t' * (tab_depth + 1)) +  f"{x}")
+            print(("\t" * (tab_depth + 1)) + f"{x}")
+
+    def __str__(self) -> str:
+        return f"Node.{self.id}"
+
+    def __repr__(self) -> str:
+        return str(self)
