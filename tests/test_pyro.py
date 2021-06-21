@@ -17,6 +17,7 @@ class User:
         self._name = name
 
     def name(self):
+        print(self._name)
         return self._name
 
 
@@ -32,6 +33,7 @@ def start_name_service():
 def serve(name: str):
     daemon = Pyro5.api.Daemon()  # make a Pyro daemon
     ns = Pyro5.api.locate_ns()  # find the name server
+
     uri = daemon.register(User(name), f"user.{name}")
     ns.register(f"user.{name}", uri, metadata=["user"])
 
