@@ -18,6 +18,17 @@ def create_chord_node(i: int):
 
 
 if __name__ == "__main__":
+    urls = [
+        "http://www.cubaeduca.cu",
+        "http://www.etecsa.cu",
+        "http://www.uci.cu",
+        "http://evea.uh.cu",
+        "http://www.uo.edu.cu",
+        "http://www.uclv.edu.cu",
+        "http://covid19cubadata.uh.cu",
+        "http://www.uh.cu",
+    ]
+
     indices = [0, 6, 3]
 
     with ThreadPoolExecutor() as executor:

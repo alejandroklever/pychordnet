@@ -2,83 +2,17 @@ import hashlib
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
-from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Union
 
 from Pyro5.api import Daemon, Proxy, expose, locate_ns
 from Pyro5.errors import CommunicationError
 
+from .node import Node, NodeType, Linker
 from .finger_table import FingerTable
 from .hash_table import HashTable
 from .monitoring import echo_error, monitor
 
-USE_MONITOR = True
-
-
-class Linker:
-    """
-    This class is an api to comunicate any member of the network with the resource server
-    """
-
-    def __init__(self, m: int) -> None:
-        self.BITS_COUNT = m
-        self.MAX = 2 ** m
-        self.name_server = locate_ns()
-        self.deamon = Daemon()
-        self.total_nodes = set(range(self.MAX))
-
-    def register_node(self, node: "Node"):
-        object_id = f"node.{node._node_type.name}.{node._id}"
-        uri = self.deamon.register(node, object_id)
-        self.name_server.register(
-            object_id, uri, metadata=[f"node.{node._node_type.name}"]
-        )
-        return uri
-
-    def unregister_node(self, node: "Node"):
-        object_id = f"node.{node._node_type.name}.{node._id}"
-        self.deamon.unregister(object_id)
-        self.name_server.remove(object_id)
-
-    def get_node(self, node_type: "NodeType", i: int) -> Any:
-        return Proxy(self.node_uri(node_type, i))
-
-    def get_nodes(self, node_type: "NodeType") -> Set[int]:
-        nodes = self.name_server.yplookup(meta_all=[f"node.{node_type.name}"])
-        return set(
-            int(node_name.replace(f"node.{node_type.name}.", "")) for node_name in nodes
-        )
-
-    def get_aviable_chord_identifier(self) -> int:
-        alive_nodes = self.get_nodes(NodeType.chord)
-        aviables_nodes = list(self.total_nodes - alive_nodes)
-        return random.choice(aviables_nodes)
-
-    def get_random_node(self, node_type: "NodeType") -> Any:
-        nodes = self.get_nodes(node_type)
-        if not nodes:
-            return None
-        return self.get_node(node_type, random.choice(list(nodes)))
-
-    def exists_node(self, node_type: "NodeType", id: int) -> bool:
-        return id in self.get_nodes(node_type)
-
-    def start_loop(self):
-        self.deamon.requestLoop()
-
-    @staticmethod
-    def node_uri(node_type: "NodeType", i: int) -> str:
-        return f"PYRONAME:node.{node_type.name}.{i}"
-
-
-class NodeType(Enum):
-    none = auto()
-    chord = auto()
-
-
-class Node:
-    _id: int
-    _node_type: NodeType
+USE_MONITOR = False
 
 
 @expose
@@ -92,13 +26,19 @@ class ChordNode(Node):
         linker: Linker,
         cache_size: int,
         use_stabilization: bool = True,
+        stabilization_interval: int = 1000,
+        fix_finger_interval: int = 1000,
     ) -> None:
         self._id = id
         self.linker = linker
         self._ft = FingerTable(id, linker.BITS_COUNT)
         self.MAX = linker.MAX
         self.BIT_COUNT = linker.BITS_COUNT
+
         self.use_stabilization = use_stabilization
+        self.stabilization_interval = stabilization_interval
+        self.fixing_fingers_interval = fix_finger_interval
+
         self.hash_table = HashTable(cache_size)
         self.executor = ThreadPoolExecutor()
 
@@ -117,6 +57,10 @@ class ChordNode(Node):
     @property
     def serialized_finger_table(self) -> List[str]:
         return [str(x) for x in self.finger_table]
+
+    @property
+    def serialized_hash_table_keys(self):
+        return [s for s in self.hash_table]
 
     ###################################
     # Successor - Predecessor Section #
@@ -203,8 +147,7 @@ class ChordNode(Node):
         """
         Pop keys of the cache hashed in interval [start, end]
         """
-        
-        print("Break")
+
         data = {
             x: self.hash_table[x]
             for x in self.hash_table
@@ -223,8 +166,11 @@ class ChordNode(Node):
             return
 
         data = self.successor.pop_in_interval(self.predecessor_id + 1, self.id)
-        print("Break")
         self.hash_table.update(data)
+
+    @monitor(active=USE_MONITOR)
+    def update_hash_table_with_keys(self, keys):
+        self.hash_table.update(keys)
 
     #######
     # End #
@@ -328,8 +274,13 @@ class ChordNode(Node):
     ###########################
     @monitor(active=USE_MONITOR)
     def stabilize_subprocess(self):
-        waiting_time = 2000  # milliseconds
+        interval = self.stabilization_interval
+        interval_over_4 = interval // 4
         while True:
+            waiting_time = random.randint(
+                interval - interval_over_4, interval + interval_over_4
+            )  # milliseconds
+
             try:
                 self.stabilize()
             except Exception as e:
@@ -369,8 +320,12 @@ class ChordNode(Node):
 
     @monitor(active=USE_MONITOR)
     def fix_fingers_subprocess(self):
-        waiting_time = 2000
+        interval = self.stabilization_interval
+        interval_over_4 = interval // 4
         while True:
+            waiting_time = random.randint(
+                interval - interval_over_4, interval + interval_over_4
+            )  # milliseconds
             try:
                 self.fix_fingers()
             except Exception as e:
@@ -384,6 +339,27 @@ class ChordNode(Node):
             return
         i = random.randint(2, self.BIT_COUNT)
         self.finger_table[i].node = self.find_successor(self.finger_table[i].start).id
+
+    #######
+    # End #
+    #######
+
+    #############
+    # disconect #
+    #############
+    @monitor(active=USE_MONITOR)
+    def disconnect(self):
+        succ = self.successor
+        pred = self.predecessor
+        succ.set_predecessor(pred.id)
+        pred.set_successor(succ.id)
+        succ.update_hash_table_with_keys(
+            {key: self.hash_table[key] for key in self.hash_table}
+        )
+
+        succ._pyroRelease()
+        pred._pyroRelease()
+        self.linker.remove_node(self.node_type, self.id)
 
     #######
     # End #
