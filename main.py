@@ -148,10 +148,8 @@ def disconnect_chord_node(
 def create_router_node():
     linker = Linker(M)
     node = RouterNode(linker)
-    echo(f"Node id => {node.id}")
     uri = linker.register_node(node)
-    echo(f"Uri => {uri}")
-    echo(f"Created node {node.id}. Location: {uri}")
+    echo(f"Created Router Node {node.id}.\nLocation: {uri}")
     node.start_loop()
 
 

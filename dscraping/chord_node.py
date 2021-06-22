@@ -119,6 +119,7 @@ class ChordNode(Node):
     @monitor(active=USE_MONITOR)
     def insert(self, key: str, value: str):
         hashed_key = self.hash(key)
+        print(hashed_key)
         node = self.find_successor(hashed_key)
         if node.id == self.id:
             self.hash_table[key] = value
