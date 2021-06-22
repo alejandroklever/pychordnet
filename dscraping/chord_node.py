@@ -162,7 +162,7 @@ class ChordNode(Node):
         Update the node cache transfering the keys from it successor
         The keys of a node are hashed in interval [predecessor + 1, self.id]
         """
-        if self.successor_id == self.id:
+        if self.successor_id == self.id or self.predecessor_id is None:
             return
 
         data = self.successor.pop_in_interval(self.predecessor_id + 1, self.id)
@@ -293,9 +293,8 @@ class ChordNode(Node):
         node_id = self.successor.predecessor_id
 
         # check if exists a better succesor
-        # print(f"\t{node_id} in ({self.id}, {self.successor_id})")
         if node_id is not None and self.in_between(
-            node_id, self.id + 1, self.successor_id
+            node_id, self.id + 1, self.successor_id, equals=False
         ):
             self.set_successor(node_id)
 
