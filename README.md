@@ -69,4 +69,4 @@ Por ultimo decir que el tamaño del chord ring puede ser modificado cambiando la
 
 ### Testing
 
-En el archivo `test_system.py` crea un sistema sencillo de 3 nodos chords en un sistema de tamaño 8 y se realizan los request de las url puestas en una lista dentro del ejemplo. Luego se eliminan los nodos prograsivamente y se van imprimendo las finger tables, asi como la llaves asociadas a cada nodo.
+En el archivo `test_system.py` crea un sistema sencillo de 4 nodos chords en un sistema de tamaño 8 y se realizan los request de las url puestas en una lista dentro del ejemplo. Luego se eliminan los nodos prograsivamente y se van imprimendo las finger tables, asi como la llaves asociadas a cada nodo.

@@ -14,6 +14,8 @@ def create_chord_node(i: int):
     print()
     os.system(f"python main.py create-chord-node {i}")
 
+def disconnect_node(i: int):
+    os.system(f"python main.py disconnect-chord-node {i}")
 
 def create_chord_node(i: int):
     print()
@@ -80,7 +82,8 @@ if __name__ == "__main__":
             time.sleep(4)
             print_hash_table()
             print()
-            print("End")
+            
+            print("End print ctrl + C")
             exit()
     except KeyboardInterrupt:
         exit()
