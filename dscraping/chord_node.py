@@ -4,7 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Union
 
-from Pyro5.api import Daemon, Proxy, expose, locate_ns
+from Pyro5.api import Proxy, expose
 from Pyro5.errors import CommunicationError
 
 from .node import Node, NodeType, Linker

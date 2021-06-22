@@ -1,11 +1,11 @@
-from Pyro5.nameserver import start_ns
 import typer
-from dscraping.node import NodeType, Linker
+from Pyro5.nameserver import start_ns
+
 from dscraping.chord_node import ChordNode
 from dscraping.client_node import ClientNode
-from dscraping.scrapper_node import RouterNode
 from dscraping.monitoring import echo
-
+from dscraping.node import Linker, NodeType
+from dscraping.scrapper_node import RouterNode
 
 app = typer.Typer()
 
@@ -96,7 +96,7 @@ def create_chord_node(
         help="New node id. If no node is provided a random aviable identifier will be assigned.",
     ),
     cache_size: int = typer.Argument(
-        5,
+        10,
         help="The cache max size per node.",
     ),
     use_stabilization: bool = typer.Argument(
@@ -157,26 +157,31 @@ def create_router_node():
 
 @app.command()
 def create_client_node(
-    filename: str = typer.Argument(
+    file: typer.FileText = typer.Argument(
         None,
         help="File with the urls for this node to resolve.",
     )
 ):
-    file = open(filename, "r")
     lines = [line if line[-1] != "\n" else line[:-1] for line in file.readlines()]
-    file.close()
 
     linker = Linker(M)
     node = ClientNode(linker, lines)
-    echo(f"Node id => {node.id}")
+    echo(f"Client Node id => {node.id}")
     uri = linker.register_node(node)
     echo(f"Uri => {uri}")
-    echo(f"Created node {node.id}. Location: {uri}")
+    echo(f"Created Client Node {node.id}.\nLocation: {uri}")
     node.start_loop()
 
 
-# @app.command()
-# def scrap(url: str = typer.Argument(None, help="Url to be scrapped")):
+@app.command()
+def scrap(url: str = typer.Argument(None, help="Url to be scrapped")):
+    linker = Linker(M)
+    node = ClientNode(linker, [url])
+    echo(f"Client Node id => {node.id}")
+    uri = linker.register_node(node)
+    echo(f"Uri => {uri}")
+    echo(f"Created Client Node {node.id}.\nLocation: {uri}")
+    node.start_loop()
 
 
 if __name__ == "__main__":
